@@ -1078,8 +1078,24 @@ func urlencodedBodyDecoder(body io.Reader, header http.Header, schema *openapi3.
 	obj := make(map[string]interface{})
 	dec := &urlValuesDecoder{values: values}
 
-	if len(schema.Value.OneOf) > 0 {
-		// Decode properties from each oneOf schema
+	switch {
+	case len(schema.Value.AllOf) > 0:
+		for _, allOfSchema := range schema.Value.AllOf {
+			for name, prop := range allOfSchema.Value.Properties {
+				if value, _, err := decodeProperty(dec, name, prop, encFn); err == nil {
+					obj[name] = value
+				}
+			}
+		}
+	case len(schema.Value.AnyOf) > 0:
+		for _, anyOfSchema := range schema.Value.AnyOf {
+			for name, prop := range anyOfSchema.Value.Properties {
+				if value, _, err := decodeProperty(dec, name, prop, encFn); err == nil {
+					obj[name] = value
+				}
+			}
+		}
+	case len(schema.Value.OneOf) > 0:
 		for _, oneOfSchema := range schema.Value.OneOf {
 			for name, prop := range oneOfSchema.Value.Properties {
 				if value, _, err := decodeProperty(dec, name, prop, encFn); err == nil {
@@ -1087,8 +1103,7 @@ func urlencodedBodyDecoder(body io.Reader, header http.Header, schema *openapi3.
 				}
 			}
 		}
-	} else {
-		// Decode properties from the main schema
+	default:
 		for name, prop := range schema.Value.Properties {
 			if value, _, err := decodeProperty(dec, name, prop, encFn); err == nil {
 				obj[name] = value
