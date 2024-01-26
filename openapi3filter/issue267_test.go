@@ -124,15 +124,33 @@ components:
 	require.NoError(t, err)
 
 	for _, testcase := range []struct {
-		ct, data string
+		ct, data   string
+		shouldFail bool
 	}{
 		{
-			ct:   "application/json",
-			data: `{"grant_type":"client_credentials", "scope":"testscope", "client_id":"myclient", "client_secret":"mypass"}`,
+			ct:         "application/json",
+			data:       `{"grant_type":"client_credentials", "scope":"testscope", "client_id":"myclient", "client_secret":"mypass"}`,
+			shouldFail: false,
 		},
 		{
-			ct:   "application/x-www-form-urlencoded",
-			data: "grant_type=client_credentials&scope=testscope&client_id=myclient&client_secret=mypass",
+			ct:         "application/json",
+			data:       `{"grant_type":"client_credentials", "scope":"testscope", "client_id":"myclient", "client_secret":"mypass","request":1}`,
+			shouldFail: false,
+		},
+		{
+			ct:         "application/x-www-form-urlencoded",
+			data:       "grant_type=client_credentials&scope=testscope&client_id=myclient&client_secret=mypass",
+			shouldFail: false,
+		},
+		{
+			ct:         "application/x-www-form-urlencoded",
+			data:       "grant_type=client_credentials&scope=testscope&client_id=myclient&client_secret=mypass&request=1",
+			shouldFail: false,
+		},
+		{
+			ct:         "application/x-www-form-urlencoded",
+			data:       "invalid_field=invalid_value",
+			shouldFail: true,
 		},
 	} {
 		t.Run(testcase.ct, func(t *testing.T) {
@@ -150,7 +168,11 @@ components:
 				Route:      route,
 			}
 			err = ValidateRequest(loader.Context, validationInput)
-			require.NoError(t, err)
+			if testcase.shouldFail {
+				require.Error(t, err, "This test case should fail")
+			} else {
+				require.NoError(t, err, "This test case should pass")
+			}
 		})
 	}
 }

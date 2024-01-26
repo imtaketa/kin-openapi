@@ -1046,38 +1046,66 @@ func yamlBodyDecoder(body io.Reader, header http.Header, schema *openapi3.Schema
 }
 
 func urlencodedBodyDecoder(body io.Reader, header http.Header, schema *openapi3.SchemaRef, encFn EncodingFn) (interface{}, error) {
-	// Read all data from body
+	// Validate schema of request body.
+	// By the OpenAPI 3 specification request body's schema must have type "object".
+	// Properties of the schema describes individual parts of request body.
+	if schema.Value.Type != "object" {
+		return nil, errors.New("unsupported schema of request body")
+	}
+	for propName, propSchema := range schema.Value.Properties {
+		switch propSchema.Value.Type {
+		case "object":
+			return nil, fmt.Errorf("unsupported schema of request body's property %q", propName)
+		case "array":
+			items := propSchema.Value.Items.Value
+			if items.Type != "string" && items.Type != "integer" && items.Type != "number" && items.Type != "boolean" {
+				return nil, fmt.Errorf("unsupported schema of request body's property %q", propName)
+			}
+		}
+	}
+
+	// Parse form.
 	b, err := io.ReadAll(body)
 	if err != nil {
 		return nil, err
 	}
-
-	// Parse form values
 	values, err := url.ParseQuery(string(b))
 	if err != nil {
 		return nil, err
 	}
 
-	// Check if the schema type is 'object'
-	if schema.Value.Type != "object" {
-		return nil, errors.New("schema type must be an object")
-	}
-
-	// Initialize an object to hold decoded data
+	// Make an object value from form values.
 	obj := make(map[string]interface{})
+	dec := &urlValuesDecoder{values: values}
 
-	// Iterate over the form values and map them to the schema properties
-	for key, values := range values {
-		// If only one value for the key, store it directly
-		if len(values) == 1 {
-			obj[key] = values[0]
-		} else if len(values) > 1 {
-			// If multiple values, store all of them
-			obj[key] = values
+	if len(schema.Value.OneOf) > 0 {
+		// Decode properties from each oneOf schema
+		for _, oneOfSchema := range schema.Value.OneOf {
+			for name, prop := range oneOfSchema.Value.Properties {
+				if value, _, err := decodeProperty(dec, name, prop, encFn); err == nil {
+					obj[name] = value
+				}
+			}
+		}
+	} else {
+		// Decode properties from the main schema
+		for name, prop := range schema.Value.Properties {
+			if value, _, err := decodeProperty(dec, name, prop, encFn); err == nil {
+				obj[name] = value
+			}
 		}
 	}
 
 	return obj, nil
+}
+
+func decodeProperty(dec valueDecoder, name string, prop *openapi3.SchemaRef, encFn EncodingFn) (interface{}, bool, error) {
+	var enc *openapi3.Encoding
+	if encFn != nil {
+		enc = encFn(name)
+	}
+	sm := enc.SerializationMethod()
+	return decodeValue(dec, name, sm, prop, false)
 }
 
 func multipartBodyDecoder(body io.Reader, header http.Header, schema *openapi3.SchemaRef, encFn EncodingFn) (interface{}, error) {
